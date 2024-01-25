@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-const bodyParser = require('body-parser');
+
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -11,7 +11,7 @@ const port = process.env.PORT || 5000;
 // middleware
 app.use(cors());
 app.use(express.json());
-app.use(bodyParser.json())
+
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.odg1wqu.mongodb.net/`;
 
@@ -31,8 +31,33 @@ async function run() {
     try {
 
         // await client.connect();
-        const postCollection = client.db('assignmentDb').collection('assignment');
-        const userCollection = client.db('assignmentDb').collection('user');
+        const postCollection = client.db('forumsDb').collection('posts');
+        const userCollection = client.db('forumsDb').collection('user');
+        const commentCollection = client.db('forumsDb').collection('comments');
+
+        app.get('/comments', async (req, res) => {
+
+            const cursor = await commentCollection.find({})
+            const result = await cursor.toArray();
+            res.send(result)
+        })
+
+        app.post('/comment', async (req, res) => {
+
+            const { postId, text } = req.body;
+            const result = await commentCollection.insertOne({ postId, text, createdAt: new Date() });
+            res.send(result);
+        }
+        );
+
+        app.get('/comments/:postId', async (req, res) => {
+            const postId = req.params.postId
+
+            const cursor = await commentCollection.find({ postId })
+            const result = await cursor.toArray();
+
+            res.send(result)
+        })
 
         app.post('/save-user', async (req, res) => {
 
@@ -40,9 +65,9 @@ async function run() {
 
             const exitUser = await userCollection.findOne({ email })
             if (!exitUser) {
-                const result = await userCollection.insertOne({ displayName, email, uid, photoURL, badge: 'bronze', role: 'user' });
+                const result = await userCollection.insertOne({ displayName, email, uid, photoURL, badge: 'bronze', role: 'user', createdAt: new Date() });
                 res.send(result);
-                console.log(result)
+
             }
             // console.log(req.body, 'req body')
         }
@@ -50,20 +75,20 @@ async function run() {
         app.get('/dashboard/:uid', async (req, res) => {
             const uid = req.params.uid;
             const result = await userCollection.findOne({ uid });
-            console.log(result, 'user detail')
+
             res.send(result);
         })
         app.get('/users', async (req, res) => {
-            const cursor = userCollection.find({})
+            const cursor = await userCollection.find({})
 
             const result = await cursor.toArray();
 
             res.send(result);
         })
         app.put('/user-role', async (req, res) => {
-            console.log(req.body)
+
             const { _id } = req.body
-            console.log('id', _id)
+
             const filter = { _id: new ObjectId(_id) }
             const options = { upsert: true };
 
@@ -81,11 +106,46 @@ async function run() {
 
         app.post('/post', async (req, res) => {
             const newPost = req.body;
-            const result = await postCollection.insertOne(newPost);
+            const info = { ...newPost, createdAt: new Date() }
+            const result = await postCollection.insertOne(info);
             res.send(result);
 
         })
+        app.put('/vote-post/:id', async (req, res) => {
+            const id = req.params.id;
+            const filter = { _id: new ObjectId(id) }
+            const options = { upsert: true };
+            const { email, type } = req.body;
 
+            const post = await postCollection.findOne(filter)
+
+            if (type == 'up') {
+                const submission = {
+                    $set: {
+                        UpVote: post.UpVote + 1,
+
+
+                    }
+                }
+
+                const result = await postCollection.updateOne(filter, submission, options);
+                res.send(result);
+            }
+            if (type == 'down') {
+                const submission = {
+                    $set: {
+                        DownVote: post.DownVote + 1,
+
+
+                    }
+                }
+
+                const result = await postCollection.updateOne(filter, submission, options);
+                res.send(result);
+            }
+
+
+        })
 
         app.put('/submission/:id', async (req, res) => {
             const id = req.params.id;
@@ -114,13 +174,16 @@ async function run() {
 
 
         app.get('/posts', async (req, res) => {
-            const value = req.query.status
+            const keyword = req.query.keyword
 
             let cursor
-            if (value) {
-                cursor = postCollection.find({ status: 'pending' });
+            if (keyword) {
+                cursor = await postCollection.find({ tag: keyword.toLowerCase() });
             } else {
-                cursor = postCollection.find({})
+
+                cursor = await postCollection.find({}).sort({
+                    createdAt: -1
+                })
             }
             const result = await cursor.toArray();
 
@@ -128,16 +191,24 @@ async function run() {
         })
 
 
+        app.get('/posts/:email', async (req, res) => {
+            const email = req.params.email;
+            // const query = { _id: new ObjectId(id) }
+            const cursor = await postCollection.find({ email });
+            const result = await cursor.toArray();
+
+            res.send(result);
+        })
         app.get('/post/:id', async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) }
             const result = await postCollection.findOne(query);
-            console.log(result, 'post detail')
+
             res.send(result);
         })
 
 
-        // await client.db("admin").command({ ping: 1 });
+        await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
 
